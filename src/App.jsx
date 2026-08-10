@@ -15,16 +15,29 @@ import {
   AtSign,
   Download,
   Share,
+  FileText,
 } from "lucide-react";
 
 const STORAGE_KEY = "tiktok-vault-accounts";
-const CATEGORIES = ["Pribadi", "Jualan", "Backup", "Lainnya"];
-const CATEGORY_COLOR = {
-  Pribadi: "text-cyan-300 border-cyan-400/40 bg-cyan-400/10",
-  Jualan: "text-pink-300 border-pink-500/40 bg-pink-500/10",
-  Backup: "text-amber-300 border-amber-400/40 bg-amber-400/10",
-  Lainnya: "text-zinc-300 border-zinc-500/40 bg-zinc-500/10",
-};
+const CATEGORY_STORAGE_KEY = "tiktok-vault-categories";
+const DEFAULT_CATEGORIES = ["Pribadi", "Jualan", "Backup", "Lainnya"];
+
+const CATEGORY_PALETTE = [
+  "text-cyan-300 border-cyan-400/40 bg-cyan-400/10",
+  "text-pink-300 border-pink-500/40 bg-pink-500/10",
+  "text-amber-300 border-amber-400/40 bg-amber-400/10",
+  "text-violet-300 border-violet-400/40 bg-violet-400/10",
+  "text-emerald-300 border-emerald-400/40 bg-emerald-400/10",
+  "text-orange-300 border-orange-400/40 bg-orange-400/10",
+  "text-sky-300 border-sky-400/40 bg-sky-400/10",
+  "text-rose-300 border-rose-400/40 bg-rose-400/10",
+];
+
+function getCategoryColor(name, categories) {
+  const idx = categories.indexOf(name);
+  if (idx === -1) return "text-zinc-300 border-zinc-500/40 bg-zinc-500/10";
+  return CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length];
+}
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -41,7 +54,7 @@ function isStandalone() {
   );
 }
 
-function compressImage(file, maxSize = 360, quality = 0.75) {
+function compressImage(file, maxSize = 480, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Gagal membaca file"));
@@ -80,11 +93,11 @@ function Avatar({ photo, size = "h-14 w-14" }) {
             "2px 0 0 0 rgba(37,244,238,0.55), -2px 0 0 0 rgba(254,44,85,0.55)",
         }}
       />
-      <div className="relative h-full w-full rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center border border-zinc-700">
+      <div className="relative h-full w-full rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center border-2 border-zinc-950">
         {photo ? (
           <img src={photo} alt="" className="h-full w-full object-cover" />
         ) : (
-          <User className="h-6 w-6 text-zinc-500" />
+          <User className="h-1/3 w-1/3 text-zinc-500" />
         )}
       </div>
     </div>
@@ -165,55 +178,76 @@ function CopyField({ icon: Icon, value, mask, onCopy, placeholder }) {
   );
 }
 
-function AccountCard({ account, onEdit, onDelete, onCopy }) {
+function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
   return (
-    <div className="group relative rounded-2xl bg-zinc-900 border border-zinc-800 p-4 hover:border-zinc-700 transition-colors">
-      <div className="flex gap-3">
-        <Avatar photo={account.photo} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="font-semibold text-zinc-50 truncate">@{account.username}</p>
-            <span
-              className={`shrink-0 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${CATEGORY_COLOR[account.category] || CATEGORY_COLOR.Lainnya}`}
-            >
-              {account.category}
-            </span>
-          </div>
-          <div className="mt-2 space-y-1.5">
-            <CopyField icon={AtSign} value={account.contact} onCopy={onCopy} placeholder="Belum ada email/nomor" />
-            <CopyField icon={Lock} value={account.password} mask onCopy={onCopy} placeholder="Belum ada password" />
-          </div>
-        </div>
+    <div className="relative mt-10 first:mt-10">
+      {/* Foto: mengambang di atas kartu, tanpa latar kotak */}
+      <div className="absolute -top-9 left-1/2 -translate-x-1/2 z-10">
+        <Avatar photo={account.photo} size="h-20 w-20" />
       </div>
-      <div className="mt-3 flex justify-end gap-1 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+
+      {/* Edit & hapus: pojok kanan atas, di atas foto, selalu terlihat */}
+      <div className="absolute -top-3 right-2 z-20 flex gap-1">
         <button
           onClick={() => onEdit(account)}
-          className="p-1.5 rounded-lg text-zinc-500 hover:text-cyan-300 hover:bg-zinc-800 transition-colors"
+          className="p-2 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-cyan-300 hover:border-cyan-400/50 transition-colors shadow-md"
           aria-label="Edit akun"
         >
-          <Pencil className="h-4 w-4" />
+          <Pencil className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => onDelete(account.id)}
-          className="p-1.5 rounded-lg text-zinc-500 hover:text-pink-400 hover:bg-zinc-800 transition-colors"
+          className="p-2 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-pink-400 hover:border-pink-500/50 transition-colors shadow-md"
           aria-label="Hapus akun"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
+      </div>
+
+      {/* Kartu: nempel di bagian bawah foto */}
+      <div className="rounded-2xl bg-zinc-900 border border-zinc-800 pt-12 px-4 pb-4">
+        <div className="text-center">
+          <p className="font-semibold text-zinc-50 truncate">@{account.username}</p>
+          <span
+            className={`inline-block mt-1.5 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${getCategoryColor(account.category, categories)}`}
+          >
+            {account.category}
+          </span>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <CopyField icon={AtSign} value={account.contact} mask onCopy={onCopy} placeholder="Belum ada email/nomor" />
+          <CopyField icon={Lock} value={account.password} mask onCopy={onCopy} placeholder="Belum ada password" />
+        </div>
+
+        {account.description && (
+          <div className="mt-3 pt-3 border-t border-zinc-800 flex gap-2 text-xs text-zinc-500">
+            <FileText className="h-3.5 w-3.5 shrink-0 mt-0.5 text-zinc-600" />
+            <p className="leading-relaxed">{account.description}</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function AccountModal({ initial, onClose, onSave }) {
+function AccountModal({ initial, categories, onClose, onSave, onAddCategory }) {
   const [username, setUsername] = useState(initial?.username || "");
   const [contact, setContact] = useState(initial?.contact || "");
   const [password, setPassword] = useState(initial?.password || "");
-  const [category, setCategory] = useState(initial?.category || CATEGORIES[0]);
+  const [description, setDescription] = useState(initial?.description || "");
+  const [category, setCategory] = useState(initial?.category || categories[0]);
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
   const fileRef = useRef(null);
+  const newCategoryRef = useRef(null);
+
+  useEffect(() => {
+    if (addingCategory) newCategoryRef.current?.focus();
+  }, [addingCategory]);
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
@@ -229,6 +263,18 @@ function AccountModal({ initial, onClose, onSave }) {
     }
   };
 
+  const confirmNewCategory = () => {
+    const name = newCategory.trim();
+    if (!name) {
+      setAddingCategory(false);
+      return;
+    }
+    onAddCategory(name);
+    setCategory(name);
+    setNewCategory("");
+    setAddingCategory(false);
+  };
+
   const handleSubmit = () => {
     if (!username.trim()) {
       setError("Username wajib diisi.");
@@ -239,6 +285,7 @@ function AccountModal({ initial, onClose, onSave }) {
       username: username.trim().replace(/^@/, ""),
       contact: contact.trim(),
       password,
+      description: description.trim(),
       category,
       photo,
       createdAt: initial?.createdAt || Date.now(),
@@ -259,9 +306,9 @@ function AccountModal({ initial, onClose, onSave }) {
 
         <div className="flex justify-center mb-5">
           <button onClick={() => fileRef.current?.click()} className="relative" aria-label="Unggah foto">
-            <Avatar photo={photo} size="h-20 w-20" />
-            <span className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-zinc-100 text-zinc-900 flex items-center justify-center">
-              <Upload className="h-3 w-3" />
+            <Avatar photo={photo} size="h-24 w-24" />
+            <span className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-zinc-100 text-zinc-900 flex items-center justify-center border-2 border-zinc-900">
+              <Upload className="h-3.5 w-3.5" />
             </span>
           </button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
@@ -296,20 +343,61 @@ function AccountModal({ initial, onClose, onSave }) {
               className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60"
             />
           </div>
-          <div>
+
+          {/* Deskripsi: dikasih jarak lebih renggang dari field2 di atas */}
+          <div className="pt-5 mt-2 border-t border-zinc-800">
+            <label className="text-xs text-zinc-500 mb-1 block">Deskripsi (opsional)</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Catatan tambahan soal akun ini..."
+              rows={3}
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 resize-none"
+            />
+          </div>
+
+          <div className="pt-1">
             <label className="text-xs text-zinc-500 mb-1 block">Kategori</label>
             <div className="flex flex-wrap gap-2">
-              {CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <button
                   key={c}
                   onClick={() => setCategory(c)}
                   className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                    category === c ? CATEGORY_COLOR[c] : "text-zinc-500 border-zinc-700 hover:border-zinc-600"
+                    category === c ? getCategoryColor(c, categories) : "text-zinc-500 border-zinc-700 hover:border-zinc-600"
                   }`}
                 >
                   {c}
                 </button>
               ))}
+
+              {addingCategory ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={newCategoryRef}
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmNewCategory()}
+                    placeholder="Nama kategori"
+                    className="w-28 rounded-full bg-zinc-800 border border-cyan-400/50 px-3 py-1.5 text-xs text-zinc-50 placeholder-zinc-600 focus:outline-none"
+                  />
+                  <button
+                    onClick={confirmNewCategory}
+                    className="p-1.5 rounded-full bg-zinc-800 border border-zinc-700 text-cyan-300"
+                    aria-label="Simpan kategori"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingCategory(true)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300 transition-colors flex items-center gap-1"
+                >
+                  <Plus className="h-3 w-3" />
+                  Tambah
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -329,6 +417,7 @@ function AccountModal({ initial, onClose, onSave }) {
 
 export default function App() {
   const [accounts, setAccounts] = useState([]);
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Semua");
@@ -346,6 +435,12 @@ export default function App() {
       setAccounts(raw ? JSON.parse(raw) : []);
     } catch {
       setAccounts([]);
+    }
+    try {
+      const rawCat = localStorage.getItem(CATEGORY_STORAGE_KEY);
+      setCategories(rawCat ? JSON.parse(rawCat) : DEFAULT_CATEGORIES);
+    } catch {
+      setCategories(DEFAULT_CATEGORIES);
     } finally {
       setLoading(false);
     }
@@ -379,6 +474,22 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const persistCategories = useCallback((next) => {
+    setCategories(next);
+    try {
+      localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // abaikan, kategori tetap jalan untuk sesi ini
+    }
+  }, []);
+
+  const handleAddCategory = (name) => {
+    const exists = categories.some((c) => c.toLowerCase() === name.toLowerCase());
+    if (exists) return;
+    persistCategories([...categories, name]);
+    showToast("Kategori ditambahkan");
+  };
 
   const showToast = (msg) => {
     setToast(msg);
@@ -457,7 +568,7 @@ export default function App() {
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1 mb-5 -mx-4 px-4">
-          {["Semua", ...CATEGORIES].map((c) => (
+          {["Semua", ...categories].map((c) => (
             <button
               key={c}
               onClick={() => setActiveCategory(c)}
@@ -481,11 +592,12 @@ export default function App() {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-6">
             {filtered.map((account) => (
               <AccountCard
                 key={account.id}
                 account={account}
+                categories={categories}
                 onEdit={(a) => {
                   setEditing(a);
                   setModalOpen(true);
@@ -513,11 +625,13 @@ export default function App() {
       {modalOpen && (
         <AccountModal
           initial={editing}
+          categories={categories}
           onClose={() => {
             setModalOpen(false);
             setEditing(null);
           }}
           onSave={handleSave}
+          onAddCategory={handleAddCategory}
         />
       )}
 
