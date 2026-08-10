@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Akun TikTok Vault</title>
+    <meta name="description" content="Simpan data akun TikTok kamu dengan aman: username, kontak, password, dan foto." />
+
+    <!-- PWA core: manifest wajib ada dan bisa diakses supaya Chrome memunculkan opsi Install -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="background-color" content="#09090b" />
+
+    <!-- Android/Chrome icon fallback -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+
+    <!-- iOS: Safari TIDAK memakai manifest icons, harus pakai tag ini sendiri -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TT Vault" />
+
+    <!-- Windows tile fallback -->
+    <meta name="msapplication-TileColor" content="#09090b" />
+    <meta name="msapplication-TileImage" content="/icons/icon-192.png" />
+  </head>
+  <body class="bg-zinc-950">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
