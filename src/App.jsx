@@ -21,6 +21,7 @@ import {
 const STORAGE_KEY = "tiktok-vault-accounts";
 const CATEGORY_STORAGE_KEY = "tiktok-vault-categories";
 const DEFAULT_CATEGORIES = ["Pribadi", "Jualan", "Backup", "Lainnya"];
+const PHOTO_RATIO = "774 / 480";
 
 const CATEGORY_PALETTE = [
   "text-cyan-300 border-cyan-400/40 bg-cyan-400/10",
@@ -54,7 +55,7 @@ function isStandalone() {
   );
 }
 
-function compressImage(file, maxSize = 480, quality = 0.8) {
+function compressImage(file, maxSize = 800, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Gagal membaca file"));
@@ -81,27 +82,6 @@ function compressImage(file, maxSize = 480, quality = 0.8) {
     };
     reader.readAsDataURL(file);
   });
-}
-
-function Avatar({ photo, size = "h-14 w-14" }) {
-  return (
-    <div className={`relative ${size} shrink-0`}>
-      <div
-        className="absolute inset-0 rounded-full"
-        style={{
-          boxShadow:
-            "2px 0 0 0 rgba(37,244,238,0.55), -2px 0 0 0 rgba(254,44,85,0.55)",
-        }}
-      />
-      <div className="relative h-full w-full rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center border-2 border-zinc-950">
-        {photo ? (
-          <img src={photo} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <User className="h-1/3 w-1/3 text-zinc-500" />
-        )}
-      </div>
-    </div>
-  );
 }
 
 function Toast({ message }) {
@@ -180,42 +160,46 @@ function CopyField({ icon: Icon, value, mask, onCopy, placeholder }) {
 
 function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
   return (
-    <div className="relative mt-10 first:mt-10">
-      {/* Foto: mengambang di atas kartu, tanpa latar kotak */}
-      <div className="absolute -top-9 left-1/2 -translate-x-1/2 z-10">
-        <Avatar photo={account.photo} size="h-20 w-20" />
+    <div className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+      {/* Foto: landscape, lebar penuh kartu */}
+      <div className="relative w-full bg-zinc-800" style={{ aspectRatio: PHOTO_RATIO }}>
+        {account.photo ? (
+          <img src={account.photo} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <User className="h-10 w-10 text-zinc-600" />
+          </div>
+        )}
+        <div className="absolute top-2 right-2 flex gap-1">
+          <button
+            onClick={() => onEdit(account)}
+            className="p-2 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-cyan-300 transition-colors"
+            aria-label="Edit akun"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => onDelete(account.id)}
+            className="p-2 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-pink-400 transition-colors"
+            aria-label="Hapus akun"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
-      {/* Edit & hapus: pojok kanan atas, di atas foto, selalu terlihat */}
-      <div className="absolute -top-3 right-2 z-20 flex gap-1">
-        <button
-          onClick={() => onEdit(account)}
-          className="p-2 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-cyan-300 hover:border-cyan-400/50 transition-colors shadow-md"
-          aria-label="Edit akun"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-        <button
-          onClick={() => onDelete(account.id)}
-          className="p-2 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-pink-400 hover:border-pink-500/50 transition-colors shadow-md"
-          aria-label="Hapus akun"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* Kartu: nempel di bagian bawah foto */}
-      <div className="rounded-2xl bg-zinc-900 border border-zinc-800 pt-12 px-4 pb-4">
-        <div className="text-center">
+      <div className="p-4">
+        {/* Username kiri, kategori kanan, sejajar */}
+        <div className="flex items-center justify-between gap-2">
           <p className="font-semibold text-zinc-50 truncate">@{account.username}</p>
           <span
-            className={`inline-block mt-1.5 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${getCategoryColor(account.category, categories)}`}
+            className={`shrink-0 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${getCategoryColor(account.category, categories)}`}
           >
             {account.category}
           </span>
         </div>
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-2">
           <CopyField icon={AtSign} value={account.contact} mask onCopy={onCopy} placeholder="Belum ada email/nomor" />
           <CopyField icon={Lock} value={account.password} mask onCopy={onCopy} placeholder="Belum ada password" />
         </div>
@@ -231,7 +215,7 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
   );
 }
 
-function AccountModal({ initial, categories, onClose, onSave, onAddCategory }) {
+function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onDeleteCategory }) {
   const [username, setUsername] = useState(initial?.username || "");
   const [contact, setContact] = useState(initial?.contact || "");
   const [password, setPassword] = useState(initial?.password || "");
@@ -248,6 +232,12 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory }) {
   useEffect(() => {
     if (addingCategory) newCategoryRef.current?.focus();
   }, [addingCategory]);
+
+  useEffect(() => {
+    if (categories.length > 0 && !categories.includes(category)) {
+      setCategory(categories[0]);
+    }
+  }, [categories]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
@@ -304,11 +294,24 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory }) {
           </button>
         </div>
 
-        <div className="flex justify-center mb-5">
-          <button onClick={() => fileRef.current?.click()} className="relative" aria-label="Unggah foto">
-            <Avatar photo={photo} size="h-24 w-24" />
-            <span className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-zinc-100 text-zinc-900 flex items-center justify-center border-2 border-zinc-900">
-              <Upload className="h-3.5 w-3.5" />
+        {/* Foto: landscape, lebar penuh */}
+        <div className="mb-5">
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="relative w-full block rounded-2xl overflow-hidden bg-zinc-800 border border-zinc-700"
+            style={{ aspectRatio: PHOTO_RATIO }}
+            aria-label="Unggah foto"
+          >
+            {photo ? (
+              <img src={photo} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-zinc-500">
+                <Upload className="h-6 w-6" />
+                <span className="text-xs">Unggah foto</span>
+              </div>
+            )}
+            <span className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-zinc-100 text-zinc-900 flex items-center justify-center">
+              <Upload className="h-4 w-4" />
             </span>
           </button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
@@ -360,15 +363,23 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory }) {
             <label className="text-xs text-zinc-500 mb-1 block">Kategori</label>
             <div className="flex flex-wrap gap-2">
               {categories.map((c) => (
-                <button
+                <div
                   key={c}
-                  onClick={() => setCategory(c)}
-                  className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                    category === c ? getCategoryColor(c, categories) : "text-zinc-500 border-zinc-700 hover:border-zinc-600"
+                  className={`flex items-center gap-1 rounded-full border pl-3 pr-1.5 py-1 text-xs transition-colors ${
+                    category === c ? getCategoryColor(c, categories) : "text-zinc-500 border-zinc-700"
                   }`}
                 >
-                  {c}
-                </button>
+                  <button onClick={() => setCategory(c)}>{c}</button>
+                  {categories.length > 1 && (
+                    <button
+                      onClick={() => onDeleteCategory(c)}
+                      className="p-0.5 rounded-full hover:bg-black/30 opacity-70 hover:opacity-100 transition-opacity"
+                      aria-label={`Hapus kategori ${c}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               ))}
 
               {addingCategory ? (
@@ -438,7 +449,8 @@ export default function App() {
     }
     try {
       const rawCat = localStorage.getItem(CATEGORY_STORAGE_KEY);
-      setCategories(rawCat ? JSON.parse(rawCat) : DEFAULT_CATEGORIES);
+      const parsed = rawCat ? JSON.parse(rawCat) : DEFAULT_CATEGORIES;
+      setCategories(parsed.length > 0 ? parsed : DEFAULT_CATEGORIES);
     } catch {
       setCategories(DEFAULT_CATEGORIES);
     } finally {
@@ -489,6 +501,13 @@ export default function App() {
     if (exists) return;
     persistCategories([...categories, name]);
     showToast("Kategori ditambahkan");
+  };
+
+  const handleDeleteCategory = (name) => {
+    if (categories.length <= 1) return;
+    persistCategories(categories.filter((c) => c !== name));
+    if (activeCategory === name) setActiveCategory("Semua");
+    showToast("Kategori dihapus");
   };
 
   const showToast = (msg) => {
@@ -592,7 +611,7 @@ export default function App() {
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {filtered.map((account) => (
               <AccountCard
                 key={account.id}
@@ -632,6 +651,7 @@ export default function App() {
           }}
           onSave={handleSave}
           onAddCategory={handleAddCategory}
+          onDeleteCategory={handleDeleteCategory}
         />
       )}
 
