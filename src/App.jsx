@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search,
   Plus,
@@ -16,6 +16,7 @@ import {
   Download,
   Share,
   FileText,
+  Database,
 } from "lucide-react";
 
 const STORAGE_KEY = "tiktok-vault-accounts";
@@ -84,6 +85,146 @@ function compressImage(file, maxSize = 800, quality = 0.8) {
   });
 }
 
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes}b`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes / 1024 < 10 ? 1 : 0)}kb`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}mb`;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- Generator PDF murni JS, tanpa library eksternal ---------- */
+
+function escapePdfText(str) {
+  let safe = "";
+  for (const ch of String(str ?? "")) {
+    const code = ch.codePointAt(0);
+    safe += code >= 32 && code <= 126 ? ch : "?";
+  }
+  return safe.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function wrapText(text, maxLen) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let cur = "";
+  words.forEach((w) => {
+    if ((cur + " " + w).trim().length > maxLen) {
+      if (cur) lines.push(cur.trim());
+      cur = w;
+    } else {
+      cur = (cur + " " + w).trim();
+    }
+  });
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [""];
+}
+
+function accountToPdfLines(a, idx) {
+  const lines = [];
+  lines.push(`${idx + 1}. @${a.username}  [${a.category}]`);
+  lines.push(`   Email/No HP : ${a.contact || "-"}`);
+  lines.push(`   Password    : ${a.password || "-"}`);
+  if (a.description) {
+    wrapText(a.description, 78).forEach((w, i) => {
+      lines.push(`   ${i === 0 ? "Deskripsi   :" : "             "} ${w}`);
+    });
+  }
+  lines.push("");
+  return lines;
+}
+
+function buildPdfPages(accounts) {
+  const header = [
+    "AKUN TIKTOK VAULT",
+    `Diekspor: ${new Date().toLocaleString("id-ID")}`,
+    `Total akun: ${accounts.length}`,
+    "",
+  ];
+  let allLines = [...header];
+  if (accounts.length === 0) {
+    allLines.push("Belum ada akun tersimpan.");
+  } else {
+    accounts.forEach((a, i) => {
+      allLines = allLines.concat(accountToPdfLines(a, i));
+    });
+  }
+
+  const LINES_PER_PAGE = 50;
+  const pages = [];
+  for (let i = 0; i < allLines.length; i += LINES_PER_PAGE) {
+    pages.push(allLines.slice(i, i + LINES_PER_PAGE));
+  }
+  return pages.length ? pages : [[""]];
+}
+
+function buildPdfDocument(pagesLines) {
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+
+  function addObj(str) {
+    offsets.push(pdf.length);
+    pdf += str;
+  }
+
+  addObj(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
+
+  const kids = pagesLines.map((_, i) => `${4 + i * 2} 0 R`);
+  addObj(
+    `2 0 obj\n<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pagesLines.length} >>\nendobj\n`
+  );
+
+  addObj(`3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`);
+
+  pagesLines.forEach((lines, i) => {
+    const pageObjNum = 4 + i * 2;
+    const contentObjNum = 5 + i * 2;
+
+    addObj(
+      `${pageObjNum} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjNum} 0 R >>\nendobj\n`
+    );
+
+    let stream = "BT\n/F1 11 Tf\n14 TL\n50 792 Td\n";
+    lines.forEach((line, idx) => {
+      const escaped = escapePdfText(line);
+      stream += idx === 0 ? `(${escaped}) Tj\n` : `T*\n(${escaped}) Tj\n`;
+    });
+    stream += "ET";
+
+    addObj(
+      `${contentObjNum} 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`
+    );
+  });
+
+  const xrefStart = pdf.length;
+  const totalObjs = offsets.length;
+  let xrefTable = `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`;
+  offsets.forEach((off) => {
+    xrefTable += `${String(off).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += xrefTable;
+  pdf += `trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+  return pdf;
+}
+
+function generatePdfBlob(accounts) {
+  const pages = buildPdfPages(accounts);
+  const pdfString = buildPdfDocument(pages);
+  return new Blob([pdfString], { type: "application/pdf" });
+}
+
+/* ---------------------------------------------------------------------- */
+
 function Toast({ message }) {
   if (!message) return null;
   return (
@@ -128,30 +269,88 @@ function InstallBanner({ onInstall, onDismiss, iosHint }) {
   );
 }
 
+function BackupSheet({ onClose, onExportJson, onExportPdf, onImportClick, jsonSize, pdfSize }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 backdrop-blur-sm">
+      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 rounded-t-3xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-extrabold tracking-tight text-zinc-50">Backup Data</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Tutup">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-2 pb-2">
+          <button
+            onClick={onExportJson}
+            className="w-full flex items-center gap-3 rounded-2xl bg-zinc-800 border border-zinc-700 p-3.5 hover:border-cyan-400/50 transition-colors text-left"
+          >
+            <div className="h-10 w-10 rounded-xl bg-zinc-900 flex items-center justify-center shrink-0">
+              <Download className="h-5 w-5 text-cyan-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-zinc-100">Download Data</p>
+              <p className="text-xs text-zinc-500">File cadangan (.json), bisa dimasukin lagi nanti</p>
+            </div>
+            <span className="text-xs text-zinc-500 shrink-0">{jsonSize}</span>
+          </button>
+
+          <button
+            onClick={onImportClick}
+            className="w-full flex items-center gap-3 rounded-2xl bg-zinc-800 border border-zinc-700 p-3.5 hover:border-cyan-400/50 transition-colors text-left"
+          >
+            <div className="h-10 w-10 rounded-xl bg-zinc-900 flex items-center justify-center shrink-0">
+              <Upload className="h-5 w-5 text-cyan-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-zinc-100">Masukan Data</p>
+              <p className="text-xs text-zinc-500">Pulihkan dari file .json yang pernah kamu download</p>
+            </div>
+          </button>
+
+          <button
+            onClick={onExportPdf}
+            className="w-full flex items-center gap-3 rounded-2xl bg-zinc-800 border border-zinc-700 p-3.5 hover:border-pink-400/50 transition-colors text-left"
+          >
+            <div className="h-10 w-10 rounded-xl bg-zinc-900 flex items-center justify-center shrink-0">
+              <FileText className="h-5 w-5 text-pink-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-zinc-100">Download PDF</p>
+              <p className="text-xs text-zinc-500">Bisa dibuka & dibaca di WPS / Word</p>
+            </div>
+            <span className="text-xs text-zinc-500 shrink-0">{pdfSize}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CopyField({ icon: Icon, value, mask, onCopy, placeholder }) {
   const [revealed, setRevealed] = useState(!mask);
   return (
-    <div className="flex items-center gap-2 text-sm text-zinc-400">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
+    <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+      <Icon className="h-3 w-3 shrink-0 text-zinc-600" />
       <span className="flex-1 truncate font-mono text-zinc-300">
-        {value ? (mask && !revealed ? "•".repeat(Math.min(value.length, 14)) : value) : placeholder}
+        {value ? (mask && !revealed ? "•".repeat(Math.min(value.length, 12)) : value) : placeholder}
       </span>
       {value && mask && (
         <button
           onClick={() => setRevealed((r) => !r)}
-          className="text-zinc-500 hover:text-zinc-200 transition-colors"
+          className="text-zinc-500 hover:text-zinc-200 transition-colors shrink-0"
           aria-label={revealed ? "Sembunyikan" : "Tampilkan"}
         >
-          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          {revealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
         </button>
       )}
       {value && (
         <button
           onClick={() => onCopy(value)}
-          className="text-zinc-500 hover:text-cyan-300 transition-colors"
+          className="text-zinc-500 hover:text-cyan-300 transition-colors shrink-0"
           aria-label="Salin"
         >
-          <Copy className="h-3.5 w-3.5" />
+          <Copy className="h-3 w-3" />
         </button>
       )}
     </div>
@@ -167,47 +366,46 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
           <img src={account.photo} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <User className="h-10 w-10 text-zinc-600" />
+            <User className="h-8 w-8 text-zinc-600" />
           </div>
         )}
-        <div className="absolute top-2 right-2 flex gap-1">
+        <div className="absolute top-1.5 right-1.5 flex gap-1">
           <button
             onClick={() => onEdit(account)}
-            className="p-2 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-cyan-300 transition-colors"
+            className="p-1.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-cyan-300 transition-colors"
             aria-label="Edit akun"
           >
-            <Pencil className="h-3.5 w-3.5" />
+            <Pencil className="h-3 w-3" />
           </button>
           <button
             onClick={() => onDelete(account.id)}
-            className="p-2 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-pink-400 transition-colors"
+            className="p-1.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-pink-400 transition-colors"
             aria-label="Hapus akun"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="h-3 w-3" />
           </button>
         </div>
       </div>
 
-      <div className="p-4">
-        {/* Username kiri, kategori kanan, sejajar */}
-        <div className="flex items-center justify-between gap-2">
-          <p className="font-semibold text-zinc-50 truncate">@{account.username}</p>
+      <div className="p-3">
+        <div className="flex items-center justify-between gap-1.5">
+          <p className="text-sm font-semibold text-zinc-50 truncate">@{account.username}</p>
           <span
-            className={`shrink-0 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${getCategoryColor(account.category, categories)}`}
+            className={`shrink-0 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full border ${getCategoryColor(account.category, categories)}`}
           >
             {account.category}
           </span>
         </div>
 
-        <div className="mt-3 space-y-2">
+        <div className="mt-2.5 space-y-1.5">
           <CopyField icon={AtSign} value={account.contact} mask onCopy={onCopy} placeholder="Belum ada email/nomor" />
           <CopyField icon={Lock} value={account.password} mask onCopy={onCopy} placeholder="Belum ada password" />
         </div>
 
         {account.description && (
-          <div className="mt-3 pt-3 border-t border-zinc-800 flex gap-2 text-xs text-zinc-500">
-            <FileText className="h-3.5 w-3.5 shrink-0 mt-0.5 text-zinc-600" />
-            <p className="leading-relaxed">{account.description}</p>
+          <div className="mt-2.5 pt-2.5 border-t border-zinc-800 flex gap-1.5 text-[11px] text-zinc-500">
+            <FileText className="h-3 w-3 shrink-0 mt-0.5 text-zinc-600" />
+            <p className="leading-relaxed line-clamp-3">{account.description}</p>
           </div>
         )}
       </div>
@@ -436,6 +634,8 @@ export default function App() {
   const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const importInputRef = useRef(null);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
@@ -553,6 +753,71 @@ export default function App() {
     showToast("Akun dihapus");
   };
 
+  /* ---------- Backup: export JSON, export PDF, import JSON ---------- */
+
+  const exportPayload = useMemo(
+    () => JSON.stringify({ accounts, categories, exportedAt: Date.now(), version: 1 }, null, 2),
+    [accounts, categories]
+  );
+  const jsonSizeLabel = useMemo(() => formatBytes(new Blob([exportPayload]).size), [exportPayload]);
+  const pdfBlob = useMemo(() => generatePdfBlob(accounts), [accounts]);
+  const pdfSizeLabel = useMemo(() => formatBytes(pdfBlob.size), [pdfBlob]);
+
+  const dateStr = () => new Date().toISOString().slice(0, 10);
+
+  const handleExportJson = () => {
+    const blob = new Blob([exportPayload], { type: "application/json" });
+    downloadBlob(blob, `tiktok-vault-backup-${dateStr()}.json`);
+    showToast("Data diunduh");
+  };
+
+  const handleExportPdf = () => {
+    downloadBlob(pdfBlob, `tiktok-vault-${dateStr()}.pdf`);
+    showToast("PDF diunduh");
+  };
+
+  const handleImportClick = () => {
+    if (accounts.length > 0) {
+      showToast("Gagal, data akun sudah ada");
+      return;
+    }
+    importInputRef.current?.click();
+  };
+
+  const handleImportFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (accounts.length > 0) {
+      showToast("Gagal, data akun sudah ada");
+      e.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        const importedAccounts = Array.isArray(parsed.accounts) ? parsed.accounts : [];
+        const importedCategories =
+          Array.isArray(parsed.categories) && parsed.categories.length > 0
+            ? parsed.categories
+            : DEFAULT_CATEGORIES;
+        persist(importedAccounts);
+        persistCategories(importedCategories);
+        showToast("Data berhasil dimuat");
+        setBackupOpen(false);
+      } catch {
+        showToast("File tidak valid");
+      }
+    };
+    reader.onerror = () => showToast("Gagal membaca file");
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  /* -------------------------------------------------------------------- */
+
   const filtered = accounts.filter((a) => {
     const matchesQuery = a.username.toLowerCase().includes(query.toLowerCase());
     const matchesCategory = activeCategory === "Semua" || a.category === activeCategory;
@@ -576,14 +841,25 @@ export default function App() {
           <InstallBanner onInstall={handleInstallClick} onDismiss={dismissBanner} iosHint={isIOS()} />
         )}
 
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-600" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cari username..."
-            className="w-full rounded-xl bg-zinc-900 border border-zinc-800 pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/50"
-          />
+        {/* Pencarian 90% + tombol backup 10% */}
+        <div className="flex gap-2 mb-3">
+          <div className="relative" style={{ flex: "9 9 0%" }}>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-600" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cari username..."
+              className="w-full rounded-xl bg-zinc-900 border border-zinc-800 pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/50"
+            />
+          </div>
+          <button
+            onClick={() => setBackupOpen(true)}
+            style={{ flex: "1 1 0%" }}
+            className="rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-cyan-300 hover:border-cyan-400/50 transition-colors"
+            aria-label="Backup data"
+          >
+            <Database className="h-4 w-4" />
+          </button>
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1 mb-5 -mx-4 px-4">
@@ -611,7 +887,7 @@ export default function App() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             {filtered.map((account) => (
               <AccountCard
                 key={account.id}
@@ -654,6 +930,24 @@ export default function App() {
           onDeleteCategory={handleDeleteCategory}
         />
       )}
+
+      {backupOpen && (
+        <BackupSheet
+          onClose={() => setBackupOpen(false)}
+          onExportJson={handleExportJson}
+          onExportPdf={handleExportPdf}
+          onImportClick={handleImportClick}
+          jsonSize={jsonSizeLabel}
+          pdfSize={pdfSizeLabel}
+        />
+      )}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={handleImportFile}
+      />
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
