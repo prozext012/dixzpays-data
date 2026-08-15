@@ -106,7 +106,7 @@ function formatUpdatedAt(ts) {
   return `${day} ${hh}.${mm} - ${relative}`;
 }
 
-function compressImage(file, maxSize = 800, quality = 0.8) {
+function compressImage(file, maxSize = 640, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Gagal membaca file"));
@@ -163,32 +163,11 @@ function escapePdfText(str) {
   return safe.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
-function wrapText(text, maxLen) {
-  const words = String(text).split(/\s+/);
-  const lines = [];
-  let cur = "";
-  words.forEach((w) => {
-    if ((cur + " " + w).trim().length > maxLen) {
-      if (cur) lines.push(cur.trim());
-      cur = w;
-    } else {
-      cur = (cur + " " + w).trim();
-    }
-  });
-  if (cur) lines.push(cur);
-  return lines.length ? lines : [""];
-}
-
 function accountToPdfLines(a, idx) {
   const lines = [];
   lines.push(`${idx + 1}. @${a.username}  [${a.category}]`);
   lines.push(`   Email/No HP : ${a.contact || "-"}`);
   lines.push(`   Password    : ${a.password || "-"}`);
-  if (a.description) {
-    wrapText(a.description, 78).forEach((w, i) => {
-      lines.push(`   ${i === 0 ? "Deskripsi   :" : "             "} ${w}`);
-    });
-  }
   lines.push(`   Diperbarui  : ${formatUpdatedAt(a.updatedAt || a.createdAt)}`);
   lines.push("");
   return lines;
@@ -511,18 +490,7 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
           <CopyField icon={Lock} value={account.password} mask onCopy={onCopy} placeholder="Belum ada password" />
         </div>
 
-        {account.description && (
-          <div className="mt-2.5 pt-2.5 border-t border-zinc-800 flex gap-1.5 text-[11px] text-zinc-500">
-            <FileText className="h-3 w-3 shrink-0 mt-0.5 text-zinc-600" />
-            <p className="leading-relaxed line-clamp-3">{account.description}</p>
-          </div>
-        )}
-
-        <div
-          className={`flex items-center gap-1.5 text-[10.5px] text-zinc-300 ${
-            account.description ? "mt-1" : "mt-2.5 pt-2.5 border-t border-zinc-800"
-          }`}
-        >
+        <div className="mt-2.5 pt-2.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10.5px] text-zinc-300">
           <Clock className="h-3 w-3 shrink-0 text-cyan-400" />
           <span>{formatUpdatedAt(account.updatedAt || account.createdAt)}</span>
         </div>
@@ -535,7 +503,6 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
   const [username, setUsername] = useState(initial?.username || "");
   const [contact, setContact] = useState(initial?.contact || "");
   const [password, setPassword] = useState(initial?.password || "");
-  const [description, setDescription] = useState(initial?.description || "");
   const [category, setCategory] = useState(initial?.category || categories[0]);
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [busy, setBusy] = useState(false);
@@ -594,7 +561,6 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
       username: username.trim().replace(/^@/, ""),
       contact: contact.trim(),
       password,
-      description: description.trim(),
       category,
       photo,
       createdAt: initial?.createdAt || now,
@@ -680,19 +646,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
             />
           </div>
 
-          {/* Deskripsi: dikasih jarak lebih renggang dari field2 di atas */}
-          <div className="pt-5 mt-2 border-t border-zinc-800">
-            <label className="text-xs text-zinc-500 mb-1 block">Deskripsi (opsional)</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Catatan tambahan soal akun ini..."
-              rows={3}
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 resize-none transition-colors"
-            />
-          </div>
-
-          <div className="pt-1">
+          <div className="mt-2 pt-5 border-t border-zinc-800">
             <label className="text-xs text-zinc-500 mb-1 block">Kategori</label>
             <div className="flex flex-wrap gap-2">
               <AnimatePresence initial={false}>
@@ -981,7 +935,6 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const importInputRef = useRef(null);
-  const initializedRef = useRef(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
@@ -1024,21 +977,7 @@ export default function App() {
     }
 
     setLoading(false);
-    initializedRef.current = true;
   }, []);
-
-  useEffect(() => {
-    if (!initializedRef.current) return;
-    setFilterOrder((prev) => {
-      const next = reconcileOrder(prev, categories);
-      try {
-        localStorage.setItem(FILTER_ORDER_KEY, JSON.stringify(next));
-      } catch {
-        // abaikan
-      }
-      return next;
-    });
-  }, [categories]);
 
   useEffect(() => {
     if (isStandalone()) return;
@@ -1090,13 +1029,17 @@ export default function App() {
   const handleAddCategory = (name) => {
     const exists = categories.some((c) => c.toLowerCase() === name.toLowerCase());
     if (exists) return;
-    persistCategories([...categories, name]);
+    const nextCategories = [...categories, name];
+    persistCategories(nextCategories);
+    handleReorderFilters(reconcileOrder(filterOrder, nextCategories));
     showToast("Kategori ditambahkan");
   };
 
   const handleDeleteCategory = (name) => {
     if (categories.length <= 1) return;
-    persistCategories(categories.filter((c) => c !== name));
+    const nextCategories = categories.filter((c) => c !== name);
+    persistCategories(nextCategories);
+    handleReorderFilters(reconcileOrder(filterOrder, nextCategories));
     if (activeCategory === name) setActiveCategory("Semua");
     showToast("Kategori dihapus");
   };
