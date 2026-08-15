@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Plus,
@@ -17,12 +18,15 @@ import {
   Share,
   FileText,
   Database,
+  Clock,
 } from "lucide-react";
 
 const STORAGE_KEY = "tiktok-vault-accounts";
 const CATEGORY_STORAGE_KEY = "tiktok-vault-categories";
+const FILTER_ORDER_KEY = "tiktok-vault-filter-order";
 const DEFAULT_CATEGORIES = ["Pribadi", "Jualan", "Backup", "Lainnya"];
 const PHOTO_RATIO = "774 / 480";
+const DAY_NAMES_ID = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 
 const CATEGORY_PALETTE = [
   "text-cyan-300 border-cyan-400/40 bg-cyan-400/10",
@@ -35,10 +39,38 @@ const CATEGORY_PALETTE = [
   "text-rose-300 border-rose-400/40 bg-rose-400/10",
 ];
 
+// Badge di atas foto: warna senada kategori, tapi transparan + blur (bukan solid, bukan gelap generik)
+const PHOTO_BADGE_PALETTE = [
+  "bg-cyan-500/30 border-cyan-300/40",
+  "bg-pink-500/30 border-pink-300/40",
+  "bg-amber-500/30 border-amber-300/40",
+  "bg-violet-500/30 border-violet-300/40",
+  "bg-emerald-500/30 border-emerald-300/40",
+  "bg-orange-500/30 border-orange-300/40",
+  "bg-sky-500/30 border-sky-300/40",
+  "bg-rose-500/30 border-rose-300/40",
+];
+
 function getCategoryColor(name, categories) {
   const idx = categories.indexOf(name);
   if (idx === -1) return "text-zinc-300 border-zinc-500/40 bg-zinc-500/10";
   return CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length];
+}
+
+function getPhotoBadgeStyle(name, categories) {
+  const idx = categories.indexOf(name);
+  if (idx === -1) return "bg-zinc-500/30 border-zinc-300/30";
+  return PHOTO_BADGE_PALETTE[idx % PHOTO_BADGE_PALETTE.length];
+}
+
+function reconcileOrder(order, categories) {
+  const validSet = new Set(["Semua", ...categories]);
+  let next = (order || []).filter((c) => validSet.has(c));
+  if (!next.includes("Semua")) next.unshift("Semua");
+  categories.forEach((c) => {
+    if (!next.includes(c)) next.push(c);
+  });
+  return next;
 }
 
 function uid() {
@@ -54,6 +86,15 @@ function isStandalone() {
     window.matchMedia?.("(display-mode: standalone)").matches ||
     window.navigator.standalone === true
   );
+}
+
+function formatUpdatedAt(ts) {
+  if (!ts) return "-";
+  const d = new Date(ts);
+  const day = DAY_NAMES_ID[d.getDay()];
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `[ ${day} ${hh}.${mm} tanggal ${d.getDate()} ]`;
 }
 
 function compressImage(file, maxSize = 800, quality = 0.8) {
@@ -139,6 +180,7 @@ function accountToPdfLines(a, idx) {
       lines.push(`   ${i === 0 ? "Deskripsi   :" : "             "} ${w}`);
     });
   }
+  lines.push(`   Diperbarui  : ${formatUpdatedAt(a.updatedAt || a.createdAt)}`);
   lines.push("");
   return lines;
 }
@@ -226,62 +268,94 @@ function generatePdfBlob(accounts) {
 /* ---------------------------------------------------------------------- */
 
 function Toast({ message }) {
-  if (!message) return null;
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-zinc-100 text-zinc-900 text-sm font-medium shadow-lg flex items-center gap-2">
+    <motion.div
+      initial={{ opacity: 0, y: 24, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 24, scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 400, damping: 28 }}
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-zinc-100 text-zinc-900 text-sm font-medium shadow-lg flex items-center gap-2"
+    >
       <Check className="h-4 w-4" />
       {message}
-    </div>
+    </motion.div>
   );
 }
 
 function InstallBanner({ onInstall, onDismiss, iosHint }) {
   return (
-    <div className="mb-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex items-start gap-3">
-      <div className="h-10 w-10 rounded-xl bg-zinc-800 flex items-center justify-center shrink-0">
-        <Download className="h-5 w-5 text-cyan-300" />
+    <motion.div
+      initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+      animate={{ opacity: 1, height: "auto", marginBottom: 20 }}
+      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      className="overflow-hidden"
+    >
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex items-start gap-3">
+        <div className="h-10 w-10 rounded-xl bg-zinc-800 flex items-center justify-center shrink-0">
+          <Download className="h-5 w-5 text-cyan-300" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-zinc-100">Pasang sebagai aplikasi</p>
+          {iosHint ? (
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Tap tombol <Share className="inline h-3 w-3 mx-0.5" /> Share di Safari, lalu pilih
+              "Add to Home Screen".
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Biar bisa dibuka kayak aplikasi biasa, tanpa address bar.
+            </p>
+          )}
+          {!iosHint && (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={onInstall}
+              className="mt-2 text-xs font-semibold rounded-full bg-zinc-50 text-zinc-900 px-3 py-1.5 hover:bg-white transition-colors"
+            >
+              Install sekarang
+            </motion.button>
+          )}
+        </div>
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={onDismiss}
+          className="text-zinc-600 hover:text-zinc-300 shrink-0"
+          aria-label="Tutup"
+        >
+          <X className="h-4 w-4" />
+        </motion.button>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-zinc-100">Pasang sebagai aplikasi</p>
-        {iosHint ? (
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Tap tombol <Share className="inline h-3 w-3 mx-0.5" /> Share di Safari, lalu pilih
-            "Add to Home Screen".
-          </p>
-        ) : (
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Biar bisa dibuka kayak aplikasi biasa, tanpa address bar.
-          </p>
-        )}
-        {!iosHint && (
-          <button
-            onClick={onInstall}
-            className="mt-2 text-xs font-semibold rounded-full bg-zinc-50 text-zinc-900 px-3 py-1.5 hover:bg-white transition-colors"
-          >
-            Install sekarang
-          </button>
-        )}
-      </div>
-      <button onClick={onDismiss} className="text-zinc-600 hover:text-zinc-300 shrink-0" aria-label="Tutup">
-        <X className="h-4 w-4" />
-      </button>
-    </div>
+    </motion.div>
   );
 }
 
 function BackupSheet({ onClose, onExportJson, onExportPdf, onImportClick, jsonSize, pdfSize }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 backdrop-blur-sm">
-      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 rounded-t-3xl p-5">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", stiffness: 320, damping: 32 }}
+        className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 rounded-t-3xl p-5"
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-extrabold tracking-tight text-zinc-50">Backup Data</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Tutup">
+          <motion.button whileTap={{ scale: 0.85 }} onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Tutup">
             <X className="h-5 w-5" />
-          </button>
+          </motion.button>
         </div>
 
         <div className="space-y-2 pb-2">
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={onExportJson}
             className="w-full flex items-center gap-3 rounded-2xl bg-zinc-800 border border-zinc-700 p-3.5 hover:border-cyan-400/50 transition-colors text-left"
           >
@@ -293,9 +367,10 @@ function BackupSheet({ onClose, onExportJson, onExportPdf, onImportClick, jsonSi
               <p className="text-xs text-zinc-500">File cadangan (.json), bisa dimasukin lagi nanti</p>
             </div>
             <span className="text-xs text-zinc-500 shrink-0">{jsonSize}</span>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={onImportClick}
             className="w-full flex items-center gap-3 rounded-2xl bg-zinc-800 border border-zinc-700 p-3.5 hover:border-cyan-400/50 transition-colors text-left"
           >
@@ -306,9 +381,10 @@ function BackupSheet({ onClose, onExportJson, onExportPdf, onImportClick, jsonSi
               <p className="text-sm font-semibold text-zinc-100">Masukan Data</p>
               <p className="text-xs text-zinc-500">Pulihkan dari file .json yang pernah kamu download</p>
             </div>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={onExportPdf}
             className="w-full flex items-center gap-3 rounded-2xl bg-zinc-800 border border-zinc-700 p-3.5 hover:border-pink-400/50 transition-colors text-left"
           >
@@ -320,10 +396,10 @@ function BackupSheet({ onClose, onExportJson, onExportPdf, onImportClick, jsonSi
               <p className="text-xs text-zinc-500">Bisa dibuka & dibaca di WPS / Word</p>
             </div>
             <span className="text-xs text-zinc-500 shrink-0">{pdfSize}</span>
-          </button>
+          </motion.button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -336,22 +412,35 @@ function CopyField({ icon: Icon, value, mask, onCopy, placeholder }) {
         {value ? (mask && !revealed ? "•".repeat(Math.min(value.length, 12)) : value) : placeholder}
       </span>
       {value && mask && (
-        <button
+        <motion.button
+          whileTap={{ scale: 0.8 }}
           onClick={() => setRevealed((r) => !r)}
           className="text-zinc-500 hover:text-zinc-200 transition-colors shrink-0"
           aria-label={revealed ? "Sembunyikan" : "Tampilkan"}
         >
-          {revealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-        </button>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={revealed ? "on" : "off"}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={{ duration: 0.15 }}
+              className="flex"
+            >
+              {revealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            </motion.span>
+          </AnimatePresence>
+        </motion.button>
       )}
       {value && (
-        <button
+        <motion.button
+          whileTap={{ scale: 0.8 }}
           onClick={() => onCopy(value)}
           className="text-zinc-500 hover:text-cyan-300 transition-colors shrink-0"
           aria-label="Salin"
         >
           <Copy className="h-3 w-3" />
-        </button>
+        </motion.button>
       )}
     </div>
   );
@@ -359,7 +448,14 @@ function CopyField({ icon: Icon, value, mask, onCopy, placeholder }) {
 
 function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
   return (
-    <div className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.9, y: 12 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 400, damping: 32 }}
+      className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden"
+    >
       {/* Foto: landscape, lebar penuh kartu */}
       <div className="relative w-full bg-zinc-800" style={{ aspectRatio: PHOTO_RATIO }}>
         {account.photo ? (
@@ -369,33 +465,37 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
             <User className="h-8 w-8 text-zinc-600" />
           </div>
         )}
-        <div className="absolute top-1.5 right-1.5 flex gap-1">
-          <button
-            onClick={() => onEdit(account)}
-            className="p-1.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-cyan-300 transition-colors"
-            aria-label="Edit akun"
+
+        {/* Baris atas: badge kategori kiri, edit/hapus kanan */}
+        <div className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
+          <span
+            className={`text-[9px] uppercase tracking-wide font-bold px-2 py-1 rounded-full border backdrop-blur-md shadow-sm text-white ${getPhotoBadgeStyle(account.category, categories)}`}
           >
-            <Pencil className="h-3 w-3" />
-          </button>
-          <button
-            onClick={() => onDelete(account.id)}
-            className="p-1.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-pink-400 transition-colors"
-            aria-label="Hapus akun"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
+            {account.category}
+          </span>
+          <div className="flex gap-1 shrink-0">
+            <motion.button
+              whileTap={{ scale: 0.85 }}
+              onClick={() => onEdit(account)}
+              className="p-1.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-cyan-300 transition-colors"
+              aria-label="Edit akun"
+            >
+              <Pencil className="h-3 w-3" />
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.85 }}
+              onClick={() => onDelete(account.id)}
+              className="p-1.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white hover:text-pink-400 transition-colors"
+              aria-label="Hapus akun"
+            >
+              <Trash2 className="h-3 w-3" />
+            </motion.button>
+          </div>
         </div>
       </div>
 
       <div className="p-3">
-        <div className="flex items-center justify-between gap-1.5">
-          <p className="text-sm font-semibold text-zinc-50 truncate">@{account.username}</p>
-          <span
-            className={`shrink-0 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full border ${getCategoryColor(account.category, categories)}`}
-          >
-            {account.category}
-          </span>
-        </div>
+        <p className="text-sm font-semibold text-zinc-50 truncate">@{account.username}</p>
 
         <div className="mt-2.5 space-y-1.5">
           <CopyField icon={AtSign} value={account.contact} mask onCopy={onCopy} placeholder="Belum ada email/nomor" />
@@ -408,8 +508,20 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
             <p className="leading-relaxed line-clamp-3">{account.description}</p>
           </div>
         )}
+
+        <div
+          className={`mt-2.5 flex items-center gap-1.5 text-[10.5px] ${
+            account.description ? "" : "pt-2.5 border-t border-zinc-800"
+          }`}
+        >
+          <Clock className="h-3 w-3 shrink-0 text-cyan-400" />
+          <span className="text-zinc-300">
+            <span className="font-semibold text-zinc-100">Diperbarui:</span>{" "}
+            {formatUpdatedAt(account.updatedAt || account.createdAt)}
+          </span>
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -468,6 +580,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
       setError("Username wajib diisi.");
       return;
     }
+    const now = Date.now();
     onSave({
       id: initial?.id || uid(),
       username: username.trim().replace(/^@/, ""),
@@ -476,25 +589,39 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
       description: description.trim(),
       category,
       photo,
-      createdAt: initial?.createdAt || Date.now(),
+      createdAt: initial?.createdAt || now,
+      updatedAt: now,
     });
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
-      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-5 max-h-[90vh] overflow-y-auto">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ y: "100%", opacity: 0, scale: 0.98 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: "100%", opacity: 0, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-5 max-h-[90vh] overflow-y-auto"
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-extrabold tracking-tight text-zinc-50">
             {initial ? "Edit Akun" : "Tambah Akun"}
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Tutup">
+          <motion.button whileTap={{ scale: 0.85 }} onClick={onClose} className="text-zinc-500 hover:text-zinc-200" aria-label="Tutup">
             <X className="h-5 w-5" />
-          </button>
+          </motion.button>
         </div>
 
         {/* Foto: landscape, lebar penuh */}
         <div className="mb-5">
-          <button
+          <motion.button
+            whileTap={{ scale: 0.98 }}
             onClick={() => fileRef.current?.click()}
             className="relative w-full block rounded-2xl overflow-hidden bg-zinc-800 border border-zinc-700"
             style={{ aspectRatio: PHOTO_RATIO }}
@@ -511,7 +638,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
             <span className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-zinc-100 text-zinc-900 flex items-center justify-center">
               <Upload className="h-4 w-4" />
             </span>
-          </button>
+          </motion.button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
         </div>
         {busy && <p className="text-center text-xs text-zinc-500 mb-3">Memproses foto...</p>}
@@ -523,7 +650,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="username_tiktok"
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60"
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 transition-colors"
             />
           </div>
           <div>
@@ -532,7 +659,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
               value={contact}
               onChange={(e) => setContact(e.target.value)}
               placeholder="email@contoh.com atau 08xxxxxxxxxx"
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60"
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 transition-colors"
             />
           </div>
           <div>
@@ -541,7 +668,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password akun"
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60"
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 transition-colors"
             />
           </div>
 
@@ -553,35 +680,47 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Catatan tambahan soal akun ini..."
               rows={3}
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 resize-none"
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 resize-none transition-colors"
             />
           </div>
 
           <div className="pt-1">
             <label className="text-xs text-zinc-500 mb-1 block">Kategori</label>
             <div className="flex flex-wrap gap-2">
-              {categories.map((c) => (
-                <div
-                  key={c}
-                  className={`flex items-center gap-1 rounded-full border pl-3 pr-1.5 py-1 text-xs transition-colors ${
-                    category === c ? getCategoryColor(c, categories) : "text-zinc-500 border-zinc-700"
-                  }`}
-                >
-                  <button onClick={() => setCategory(c)}>{c}</button>
-                  {categories.length > 1 && (
-                    <button
-                      onClick={() => onDeleteCategory(c)}
-                      className="p-0.5 rounded-full hover:bg-black/30 opacity-70 hover:opacity-100 transition-opacity"
-                      aria-label={`Hapus kategori ${c}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              ))}
+              <AnimatePresence initial={false}>
+                {categories.map((c) => (
+                  <motion.div
+                    key={c}
+                    layout
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                    className={`flex items-center gap-1 rounded-full border pl-3 pr-1.5 py-1 text-xs ${
+                      category === c ? getCategoryColor(c, categories) : "text-zinc-500 border-zinc-700"
+                    }`}
+                  >
+                    <button onClick={() => setCategory(c)}>{c}</button>
+                    {categories.length > 1 && (
+                      <motion.button
+                        whileTap={{ scale: 0.8 }}
+                        onClick={() => onDeleteCategory(c)}
+                        className="p-0.5 rounded-full hover:bg-black/30 opacity-70 hover:opacity-100 transition-opacity"
+                        aria-label={`Hapus kategori ${c}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </motion.button>
+                    )}
+                  </motion.div>
+                ))}
+              </AnimatePresence>
 
               {addingCategory ? (
-                <div className="flex items-center gap-1">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex items-center gap-1"
+                >
                   <input
                     ref={newCategoryRef}
                     value={newCategory}
@@ -590,36 +729,179 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
                     placeholder="Nama kategori"
                     className="w-28 rounded-full bg-zinc-800 border border-cyan-400/50 px-3 py-1.5 text-xs text-zinc-50 placeholder-zinc-600 focus:outline-none"
                   />
-                  <button
+                  <motion.button
+                    whileTap={{ scale: 0.85 }}
                     onClick={confirmNewCategory}
                     className="p-1.5 rounded-full bg-zinc-800 border border-zinc-700 text-cyan-300"
                     aria-label="Simpan kategori"
                   >
                     <Check className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                  </motion.button>
+                </motion.div>
               ) : (
-                <button
+                <motion.button
+                  whileTap={{ scale: 0.94 }}
                   onClick={() => setAddingCategory(true)}
                   className="px-3 py-1.5 rounded-full text-xs border border-dashed border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300 transition-colors flex items-center gap-1"
                 >
                   <Plus className="h-3 w-3" />
                   Tambah
-                </button>
+                </motion.button>
               )}
             </div>
           </div>
         </div>
 
-        {error && <p className="text-pink-400 text-sm mt-3">{error}</p>}
+        {error && (
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-pink-400 text-sm mt-3">
+            {error}
+          </motion.p>
+        )}
 
-        <button
+        <motion.button
+          whileTap={{ scale: 0.98 }}
           onClick={handleSubmit}
           className="mt-5 w-full rounded-xl bg-zinc-50 text-zinc-900 font-bold py-3 hover:bg-white transition-colors"
         >
           Simpan Akun
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ---------- Filter chips: bisa di-reorder dengan tekan-lama lalu geser ---------- */
+
+function FilterChips({ order, categories, activeCategory, onSelect, onReorder }) {
+  const [localOrder, setLocalOrder] = useState(order);
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const chipRefs = useRef({});
+  const orderRef = useRef(order);
+  const dragOriginRef = useRef({ x: 0, y: 0 });
+  const longPressTimer = useRef(null);
+  const movedRef = useRef(false);
+
+  useEffect(() => {
+    setLocalOrder(order);
+    orderRef.current = order;
+  }, [order]);
+
+  const clearTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePointerDown = (e, name) => {
+    movedRef.current = false;
+    dragOriginRef.current = { x: e.clientX, y: e.clientY };
+    clearTimer();
+    longPressTimer.current = setTimeout(() => {
+      setDraggingId(name);
+      setDragOffset({ x: 0, y: 0 });
+      if (navigator.vibrate) navigator.vibrate(15);
+    }, 550);
+  };
+
+  const handlePointerMove = (e) => {
+    if (draggingId) {
+      movedRef.current = true;
+      setDragOffset({ x: e.clientX - dragOriginRef.current.x, y: e.clientY - dragOriginRef.current.y });
+
+      const current = orderRef.current;
+      const draggedIdx = current.indexOf(draggingId);
+      for (const name of current) {
+        if (name === draggingId) continue;
+        const el = chipRefs.current[name];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          const targetIdx = current.indexOf(name);
+          if (targetIdx !== -1 && targetIdx !== draggedIdx) {
+            const next = [...current];
+            next.splice(draggedIdx, 1);
+            next.splice(targetIdx, 0, draggingId);
+            orderRef.current = next;
+            setLocalOrder(next);
+          }
+          break;
+        }
+      }
+      return;
+    }
+
+    if (longPressTimer.current) {
+      const dx = Math.abs(e.clientX - dragOriginRef.current.x);
+      const dy = Math.abs(e.clientY - dragOriginRef.current.y);
+      if (dx > 10 || dy > 10) clearTimer();
+    }
+  };
+
+  const finishDrag = () => {
+    clearTimer();
+    if (draggingId) {
+      onReorder(orderRef.current);
+      setDraggingId(null);
+      setDragOffset({ x: 0, y: 0 });
+    }
+  };
+
+  const handleChipPointerUp = (name) => {
+    clearTimer();
+    if (draggingId) {
+      finishDrag();
+    } else if (!movedRef.current) {
+      onSelect(name);
+    }
+  };
+
+  return (
+    <div
+      className="flex flex-wrap gap-2 mb-5"
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
+    >
+      <AnimatePresence initial={false}>
+        {localOrder.map((name) => {
+          const isSemua = name === "Semua";
+          const active = activeCategory === name;
+          const isDragging = draggingId === name;
+          const colorClass = active
+            ? isSemua
+              ? "bg-zinc-100 text-zinc-900 border-zinc-100"
+              : getCategoryColor(name, categories)
+            : "text-zinc-500 border-zinc-800 hover:border-zinc-700";
+          return (
+            <motion.button
+              key={name}
+              layout
+              ref={(el) => {
+                chipRefs.current[name] = el;
+              }}
+              onPointerDown={(e) => handlePointerDown(e, name)}
+              onPointerUp={() => handleChipPointerUp(name)}
+              animate={{
+                scale: isDragging ? 1.12 : 1,
+                x: isDragging ? dragOffset.x : 0,
+                y: isDragging ? dragOffset.y : 0,
+              }}
+              transition={
+                isDragging ? { type: "tween", duration: 0 } : { type: "spring", stiffness: 500, damping: 32 }
+              }
+              whileTap={{ scale: 0.94 }}
+              style={{ touchAction: "none" }}
+              className={`select-none shrink-0 px-3 py-1.5 rounded-full text-xs border transition-colors ${colorClass} ${
+                isDragging ? "shadow-xl z-20 cursor-grabbing" : "cursor-pointer"
+              }`}
+            >
+              {name}
+            </motion.button>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }
@@ -627,6 +909,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
 export default function App() {
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [filterOrder, setFilterOrder] = useState(["Semua", ...DEFAULT_CATEGORIES]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Semua");
@@ -636,27 +919,64 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const importInputRef = useRef(null);
+  const initializedRef = useRef(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
   useEffect(() => {
+    let acc = [];
+    let cats = DEFAULT_CATEGORIES;
+    let order = ["Semua", ...DEFAULT_CATEGORIES];
+
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      setAccounts(raw ? JSON.parse(raw) : []);
+      acc = raw ? JSON.parse(raw) : [];
     } catch {
-      setAccounts([]);
+      acc = [];
     }
     try {
       const rawCat = localStorage.getItem(CATEGORY_STORAGE_KEY);
       const parsed = rawCat ? JSON.parse(rawCat) : DEFAULT_CATEGORIES;
-      setCategories(parsed.length > 0 ? parsed : DEFAULT_CATEGORIES);
+      cats = parsed.length > 0 ? parsed : DEFAULT_CATEGORIES;
     } catch {
-      setCategories(DEFAULT_CATEGORIES);
-    } finally {
-      setLoading(false);
+      cats = DEFAULT_CATEGORIES;
     }
+    try {
+      const rawOrder = localStorage.getItem(FILTER_ORDER_KEY);
+      order = rawOrder ? JSON.parse(rawOrder) : ["Semua", ...cats];
+    } catch {
+      order = ["Semua", ...cats];
+    }
+
+    const reconciled = reconcileOrder(order, cats);
+
+    setAccounts(acc);
+    setCategories(cats);
+    setFilterOrder(reconciled);
+    setActiveCategory(reconciled[0] || "Semua");
+    try {
+      localStorage.setItem(FILTER_ORDER_KEY, JSON.stringify(reconciled));
+    } catch {
+      // abaikan
+    }
+
+    setLoading(false);
+    initializedRef.current = true;
   }, []);
+
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    setFilterOrder((prev) => {
+      const next = reconcileOrder(prev, categories);
+      try {
+        localStorage.setItem(FILTER_ORDER_KEY, JSON.stringify(next));
+      } catch {
+        // abaikan
+      }
+      return next;
+    });
+  }, [categories]);
 
   useEffect(() => {
     if (isStandalone()) return;
@@ -695,6 +1015,15 @@ export default function App() {
       // abaikan, kategori tetap jalan untuk sesi ini
     }
   }, []);
+
+  const handleReorderFilters = (newOrder) => {
+    setFilterOrder(newOrder);
+    try {
+      localStorage.setItem(FILTER_ORDER_KEY, JSON.stringify(newOrder));
+    } catch {
+      // abaikan
+    }
+  };
 
   const handleAddCategory = (name) => {
     const exists = categories.some((c) => c.toLowerCase() === name.toLowerCase());
@@ -756,8 +1085,8 @@ export default function App() {
   /* ---------- Backup: export JSON, export PDF, import JSON ---------- */
 
   const exportPayload = useMemo(
-    () => JSON.stringify({ accounts, categories, exportedAt: Date.now(), version: 1 }, null, 2),
-    [accounts, categories]
+    () => JSON.stringify({ accounts, categories, filterOrder, exportedAt: Date.now(), version: 2 }, null, 2),
+    [accounts, categories, filterOrder]
   );
   const jsonSizeLabel = useMemo(() => formatBytes(new Blob([exportPayload]).size), [exportPayload]);
   const pdfBlob = useMemo(() => generatePdfBlob(accounts), [accounts]);
@@ -803,8 +1132,14 @@ export default function App() {
           Array.isArray(parsed.categories) && parsed.categories.length > 0
             ? parsed.categories
             : DEFAULT_CATEGORIES;
+        const importedOrder = Array.isArray(parsed.filterOrder)
+          ? reconcileOrder(parsed.filterOrder, importedCategories)
+          : reconcileOrder(["Semua", ...importedCategories], importedCategories);
+
         persist(importedAccounts);
         persistCategories(importedCategories);
+        handleReorderFilters(importedOrder);
+        setActiveCategory(importedOrder[0] || "Semua");
         showToast("Data berhasil dimuat");
         setBackupOpen(false);
       } catch {
@@ -824,6 +1159,9 @@ export default function App() {
     return matchesQuery && matchesCategory;
   });
 
+  const activeCategoryCount =
+    activeCategory !== "Semua" ? accounts.filter((a) => a.category === activeCategory).length : null;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-md mx-auto px-4 pt-8 pb-24">
@@ -834,12 +1172,30 @@ export default function App() {
               Akun TikTok
             </span>
           </h1>
-          <p className="text-sm text-zinc-500 mt-1">{accounts.length} akun tersimpan</p>
+          <p className="text-sm text-zinc-500 mt-1">
+            {accounts.length} akun tersimpan
+            <AnimatePresence>
+              {activeCategoryCount !== null && (
+                <motion.span
+                  key={activeCategory}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -6 }}
+                  transition={{ duration: 0.18 }}
+                  className="inline-block"
+                >
+                  , {activeCategoryCount} akun
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </p>
         </header>
 
-        {showInstallBanner && (
-          <InstallBanner onInstall={handleInstallClick} onDismiss={dismissBanner} iosHint={isIOS()} />
-        )}
+        <AnimatePresence>
+          {showInstallBanner && (
+            <InstallBanner onInstall={handleInstallClick} onDismiss={dismissBanner} iosHint={isIOS()} />
+          )}
+        </AnimatePresence>
 
         {/* Pencarian 90% + tombol backup 10% */}
         <div className="flex gap-2 mb-3">
@@ -849,63 +1205,64 @@ export default function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Cari username..."
-              className="w-full rounded-xl bg-zinc-900 border border-zinc-800 pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/50"
+              className="w-full rounded-xl bg-zinc-900 border border-zinc-800 pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/50 transition-colors"
             />
           </div>
-          <button
+          <motion.button
+            whileTap={{ scale: 0.92 }}
             onClick={() => setBackupOpen(true)}
             style={{ flex: "1 1 0%" }}
             className="rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-cyan-300 hover:border-cyan-400/50 transition-colors"
             aria-label="Backup data"
           >
             <Database className="h-4 w-4" />
-          </button>
+          </motion.button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-5 -mx-4 px-4">
-          {["Semua", ...categories].map((c) => (
-            <button
-              key={c}
-              onClick={() => setActiveCategory(c)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                activeCategory === c
-                  ? "bg-zinc-100 text-zinc-900 border-zinc-100"
-                  : "text-zinc-500 border-zinc-800 hover:border-zinc-700"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
+        <FilterChips
+          order={filterOrder}
+          categories={categories}
+          activeCategory={activeCategory}
+          onSelect={setActiveCategory}
+          onReorder={handleReorderFilters}
+        />
 
         {loading ? (
           <p className="text-zinc-600 text-sm text-center py-16">Memuat data...</p>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-16"
+          >
             <p className="text-zinc-500 text-sm">
               {accounts.length === 0 ? "Belum ada akun. Tambahkan akun TikTok pertamamu." : "Tidak ada akun yang cocok."}
             </p>
-          </div>
+          </motion.div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {filtered.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                categories={categories}
-                onEdit={(a) => {
-                  setEditing(a);
-                  setModalOpen(true);
-                }}
-                onDelete={(id) => setConfirmDelete(id)}
-                onCopy={handleCopy}
-              />
-            ))}
-          </div>
+          <motion.div layout className="grid grid-cols-2 gap-3">
+            <AnimatePresence mode="popLayout">
+              {filtered.map((account) => (
+                <AccountCard
+                  key={account.id}
+                  account={account}
+                  categories={categories}
+                  onEdit={(a) => {
+                    setEditing(a);
+                    setModalOpen(true);
+                  }}
+                  onDelete={(id) => setConfirmDelete(id)}
+                  onCopy={handleCopy}
+                />
+              ))}
+            </AnimatePresence>
+          </motion.div>
         )}
       </div>
 
-      <button
+      <motion.button
+        whileTap={{ scale: 0.9 }}
+        whileHover={{ scale: 1.05 }}
         onClick={() => {
           setEditing(null);
           setModalOpen(true);
@@ -915,32 +1272,36 @@ export default function App() {
         aria-label="Tambah akun"
       >
         <Plus className="h-6 w-6" />
-      </button>
+      </motion.button>
 
-      {modalOpen && (
-        <AccountModal
-          initial={editing}
-          categories={categories}
-          onClose={() => {
-            setModalOpen(false);
-            setEditing(null);
-          }}
-          onSave={handleSave}
-          onAddCategory={handleAddCategory}
-          onDeleteCategory={handleDeleteCategory}
-        />
-      )}
+      <AnimatePresence>
+        {modalOpen && (
+          <AccountModal
+            initial={editing}
+            categories={categories}
+            onClose={() => {
+              setModalOpen(false);
+              setEditing(null);
+            }}
+            onSave={handleSave}
+            onAddCategory={handleAddCategory}
+            onDeleteCategory={handleDeleteCategory}
+          />
+        )}
+      </AnimatePresence>
 
-      {backupOpen && (
-        <BackupSheet
-          onClose={() => setBackupOpen(false)}
-          onExportJson={handleExportJson}
-          onExportPdf={handleExportPdf}
-          onImportClick={handleImportClick}
-          jsonSize={jsonSizeLabel}
-          pdfSize={pdfSizeLabel}
-        />
-      )}
+      <AnimatePresence>
+        {backupOpen && (
+          <BackupSheet
+            onClose={() => setBackupOpen(false)}
+            onExportJson={handleExportJson}
+            onExportPdf={handleExportPdf}
+            onImportClick={handleImportClick}
+            jsonSize={jsonSizeLabel}
+            pdfSize={pdfSizeLabel}
+          />
+        )}
+      </AnimatePresence>
       <input
         ref={importInputRef}
         type="file"
@@ -949,30 +1310,45 @@ export default function App() {
         onChange={handleImportFile}
       />
 
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-xs bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-center">
-            <p className="text-zinc-100 font-medium mb-1">Hapus akun ini?</p>
-            <p className="text-zinc-500 text-sm mb-4">Data yang dihapus tidak bisa dikembalikan.</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => handleDelete(confirmDelete)}
-                className="flex-1 rounded-xl bg-pink-500 py-2.5 text-sm font-semibold text-white hover:bg-pink-600"
-              >
-                Hapus
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {confirmDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              className="w-full max-w-xs bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-center"
+            >
+              <p className="text-zinc-100 font-medium mb-1">Hapus akun ini?</p>
+              <p className="text-zinc-500 text-sm mb-4">Data yang dihapus tidak bisa dikembalikan.</p>
+              <div className="flex gap-2">
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setConfirmDelete(null)}
+                  className="flex-1 rounded-xl border border-zinc-700 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
+                >
+                  Batal
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => handleDelete(confirmDelete)}
+                  className="flex-1 rounded-xl bg-pink-500 py-2.5 text-sm font-semibold text-white hover:bg-pink-600"
+                >
+                  Hapus
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <Toast message={toast} />
+      <AnimatePresence>{toast && <Toast message={toast} />}</AnimatePresence>
     </div>
   );
 }
