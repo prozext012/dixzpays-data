@@ -94,7 +94,16 @@ function formatUpdatedAt(ts) {
   const day = DAY_NAMES_ID[d.getDay()];
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${day} ${hh}.${mm} - tanggal ${d.getDate()}`;
+
+  const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+
+  let relative;
+  if (diffDays <= 0) relative = "hari ini";
+  else if (diffDays === 1) relative = "kemarin";
+  else relative = `${diffDays} hari lalu`;
+
+  return `${day} ${hh}.${mm} - ${relative}`;
 }
 
 function compressImage(file, maxSize = 800, quality = 0.8) {
@@ -273,7 +282,7 @@ function Toast({ message }) {
       initial={{ opacity: 0, y: 24, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 24, scale: 0.9 }}
-      transition={{ type: "spring", stiffness: 400, damping: 28 }}
+      transition={{ type: "spring", stiffness: 260, damping: 26 }}
       className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-zinc-100 text-zinc-900 text-sm font-medium shadow-lg flex items-center gap-2"
     >
       <Check className="h-4 w-4" />
@@ -288,7 +297,7 @@ function InstallBanner({ onInstall, onDismiss, iosHint }) {
       initial={{ opacity: 0, height: 0, marginBottom: 0 }}
       animate={{ opacity: 1, height: "auto", marginBottom: 20 }}
       exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      transition={{ type: "spring", stiffness: 230, damping: 26 }}
       className="overflow-hidden"
     >
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 flex items-start gap-3">
@@ -453,7 +462,7 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
       initial={{ opacity: 0, scale: 0.9, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.9 }}
-      transition={{ type: "spring", stiffness: 400, damping: 32 }}
+      transition={{ type: "spring", stiffness: 260, damping: 28 }}
       className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden"
     >
       {/* Foto: landscape, lebar penuh kartu */}
@@ -469,7 +478,7 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
         {/* Baris atas: badge kategori kiri, edit/hapus kanan */}
         <div className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
           <span
-            className={`text-[9px] uppercase tracking-wide font-bold px-2 py-1 rounded-full bg-black/50 backdrop-blur-sm border shadow-sm text-white ${getCategoryBorderColor(account.category, categories)}`}
+            className={`text-[9px] uppercase tracking-wide font-bold px-2 py-1 rounded-full bg-black/50 backdrop-blur-sm border-2 shadow-sm text-white ${getCategoryBorderColor(account.category, categories)}`}
           >
             {account.category}
           </span>
@@ -605,7 +614,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
         initial={{ y: "100%", opacity: 0, scale: 0.98 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: "100%", opacity: 0, scale: 0.98 }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        transition={{ type: "spring", stiffness: 230, damping: 26 }}
         className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-5 max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between mb-4">
@@ -694,7 +703,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.8 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 28 }}
                     className={`flex items-center gap-1 rounded-full border pl-3 pr-1.5 py-1 text-xs ${
                       category === c ? getCategoryColor(c, categories) : "text-zinc-500 border-zinc-700"
                     }`}
@@ -785,7 +794,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
               >
                 <motion.span
                   layout
-                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 26 }}
                   className="h-4 w-4 rounded-full bg-white block shadow"
                 />
               </div>
@@ -802,10 +811,11 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
 function FilterChips({ order, categories, activeCategory, onSelect, onReorder }) {
   const [localOrder, setLocalOrder] = useState(order);
   const [draggingId, setDraggingId] = useState(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const chipRefs = useRef({});
   const orderRef = useRef(order);
-  const dragOriginRef = useRef({ x: 0, y: 0 });
+  const dragStartRect = useRef(null);
+  const pointerStart = useRef({ x: 0, y: 0 });
   const longPressTimer = useRef(null);
   const movedRef = useRef(false);
 
@@ -821,21 +831,42 @@ function FilterChips({ order, categories, activeCategory, onSelect, onReorder })
     }
   };
 
-  const handlePointerDown = (e, name) => {
-    movedRef.current = false;
-    dragOriginRef.current = { x: e.clientX, y: e.clientY };
-    clearTimer();
-    longPressTimer.current = setTimeout(() => {
-      setDraggingId(name);
-      setDragOffset({ x: 0, y: 0 });
-      if (navigator.vibrate) navigator.vibrate(15);
-    }, 550);
+  const startDrag = (name) => {
+    const el = chipRefs.current[name];
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    dragStartRect.current = rect;
+    setDragPos({ x: rect.left, y: rect.top });
+    setDraggingId(name);
+    if (navigator.vibrate) navigator.vibrate(15);
   };
 
-  const handlePointerMove = (e) => {
-    if (draggingId) {
+  const handlePointerDown = (e, name) => {
+    movedRef.current = false;
+    pointerStart.current = { x: e.clientX, y: e.clientY };
+    clearTimer();
+    longPressTimer.current = setTimeout(() => startDrag(name), 550);
+  };
+
+  // Batalin long-press kalau jari gerak duluan sebelum waktunya (dianggap bukan niat geser)
+  const handleContainerPointerMove = (e) => {
+    if (longPressTimer.current) {
+      const dx = Math.abs(e.clientX - pointerStart.current.x);
+      const dy = Math.abs(e.clientY - pointerStart.current.y);
+      if (dx > 10 || dy > 10) clearTimer();
+    }
+  };
+
+  // Selama drag aktif, pasang listener di window langsung -> gerakan & pelepasan jari selalu ke-tangkep,
+  // gak peduli jari keluar dari area chip, dan cuma ke-proses SEKALI (gak dobel kayak sebelumnya).
+  useEffect(() => {
+    if (!draggingId) return;
+
+    const handleMove = (e) => {
       movedRef.current = true;
-      setDragOffset({ x: e.clientX - dragOriginRef.current.x, y: e.clientY - dragOriginRef.current.y });
+      const dx = e.clientX - pointerStart.current.x;
+      const dy = e.clientY - pointerStart.current.y;
+      setDragPos({ x: dragStartRect.current.left + dx, y: dragStartRect.current.top + dy });
 
       const current = orderRef.current;
       const draggedIdx = current.indexOf(draggingId);
@@ -856,41 +887,32 @@ function FilterChips({ order, categories, activeCategory, onSelect, onReorder })
           break;
         }
       }
-      return;
-    }
+    };
 
-    if (longPressTimer.current) {
-      const dx = Math.abs(e.clientX - dragOriginRef.current.x);
-      const dy = Math.abs(e.clientY - dragOriginRef.current.y);
-      if (dx > 10 || dy > 10) clearTimer();
-    }
-  };
-
-  const finishDrag = () => {
-    clearTimer();
-    if (draggingId) {
+    const handleUp = () => {
       onReorder(orderRef.current);
       setDraggingId(null);
-      setDragOffset({ x: 0, y: 0 });
-    }
-  };
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+    };
+  }, [draggingId, onReorder]);
 
   const handleChipPointerUp = (name) => {
     clearTimer();
-    if (draggingId) {
-      finishDrag();
-    } else if (!movedRef.current) {
+    if (!draggingId && !movedRef.current) {
       onSelect(name);
     }
   };
 
   return (
-    <div
-      className="flex flex-wrap gap-2 mb-5"
-      onPointerMove={handlePointerMove}
-      onPointerUp={finishDrag}
-      onPointerCancel={finishDrag}
-    >
+    <div className="flex flex-wrap gap-2 mb-5 relative" onPointerMove={handleContainerPointerMove}>
       <AnimatePresence initial={false}>
         {localOrder.map((name) => {
           const isSemua = name === "Semua";
@@ -904,31 +926,44 @@ function FilterChips({ order, categories, activeCategory, onSelect, onReorder })
           return (
             <motion.button
               key={name}
-              layout
+              layout={!isDragging}
               ref={(el) => {
                 chipRefs.current[name] = el;
               }}
               onPointerDown={(e) => handlePointerDown(e, name)}
               onPointerUp={() => handleChipPointerUp(name)}
-              animate={{
-                scale: isDragging ? 1.12 : 1,
-                x: isDragging ? dragOffset.x : 0,
-                y: isDragging ? dragOffset.y : 0,
-              }}
-              transition={
-                isDragging ? { type: "tween", duration: 0 } : { type: "spring", stiffness: 500, damping: 32 }
-              }
+              initial={false}
+              animate={{ opacity: isDragging ? 0.3 : 1 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30 }}
               whileTap={{ scale: 0.94 }}
               style={{ touchAction: "none" }}
-              className={`select-none shrink-0 px-3 py-1.5 rounded-full text-xs border transition-colors ${colorClass} ${
-                isDragging ? "shadow-xl z-20 cursor-grabbing" : "cursor-pointer"
-              }`}
+              className={`select-none shrink-0 px-3 py-1.5 rounded-full text-xs border transition-colors ${colorClass}`}
             >
               {name}
             </motion.button>
           );
         })}
       </AnimatePresence>
+
+      {/* Klon melayang: posisinya ngikutin jari 1:1 selama digeser */}
+      {draggingId && dragStartRect.current && (
+        <div
+          style={{
+            position: "fixed",
+            left: dragPos.x,
+            top: dragPos.y,
+            width: dragStartRect.current.width,
+            height: dragStartRect.current.height,
+            zIndex: 100,
+            pointerEvents: "none",
+          }}
+          className={`flex items-center justify-center rounded-full text-xs font-medium shadow-2xl scale-110 text-zinc-50 bg-zinc-800 border-2 ${
+            draggingId === "Semua" ? "border-zinc-100" : getCategoryBorderColor(draggingId, categories)
+          }`}
+        >
+          {draggingId}
+        </div>
+      )}
     </div>
   );
 }
@@ -1110,14 +1145,21 @@ export default function App() {
   };
 
   /* ---------- Backup: export JSON, export PDF, import JSON ---------- */
+  /* Sengaja cuma dihitung pas backupOpen true, biar nambah/edit akun gak jadi berat */
 
   const exportPayload = useMemo(
-    () => JSON.stringify({ accounts, categories, filterOrder, exportedAt: Date.now(), version: 2 }, null, 2),
-    [accounts, categories, filterOrder]
+    () =>
+      backupOpen
+        ? JSON.stringify({ accounts, categories, filterOrder, exportedAt: Date.now(), version: 2 }, null, 2)
+        : "",
+    [backupOpen, accounts, categories, filterOrder]
   );
-  const jsonSizeLabel = useMemo(() => formatBytes(new Blob([exportPayload]).size), [exportPayload]);
-  const pdfBlob = useMemo(() => generatePdfBlob(accounts), [accounts]);
-  const pdfSizeLabel = useMemo(() => formatBytes(pdfBlob.size), [pdfBlob]);
+  const jsonSizeLabel = useMemo(
+    () => (backupOpen ? formatBytes(new Blob([exportPayload]).size) : ""),
+    [backupOpen, exportPayload]
+  );
+  const pdfBlob = useMemo(() => (backupOpen ? generatePdfBlob(accounts) : null), [backupOpen, accounts]);
+  const pdfSizeLabel = useMemo(() => (pdfBlob ? formatBytes(pdfBlob.size) : ""), [pdfBlob]);
 
   const dateStr = () => new Date().toISOString().slice(0, 10);
 
@@ -1128,6 +1170,7 @@ export default function App() {
   };
 
   const handleExportPdf = () => {
+    if (!pdfBlob) return;
     downloadBlob(pdfBlob, `tiktok-vault-${dateStr()}.pdf`);
     showToast("PDF diunduh");
   };
@@ -1349,7 +1392,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              transition={{ type: "spring", stiffness: 260, damping: 26 }}
               className="w-full max-w-xs bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-center"
             >
               <p className="text-zinc-100 font-medium mb-1">Hapus akun ini?</p>
