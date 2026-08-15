@@ -39,16 +39,16 @@ const CATEGORY_PALETTE = [
   "text-rose-300 border-rose-400/40 bg-rose-400/10",
 ];
 
-// Badge di atas foto: warna senada kategori, tapi transparan + blur (bukan solid, bukan gelap generik)
-const PHOTO_BADGE_PALETTE = [
-  "bg-cyan-500/30 border-cyan-300/40",
-  "bg-pink-500/30 border-pink-300/40",
-  "bg-amber-500/30 border-amber-300/40",
-  "bg-violet-500/30 border-violet-300/40",
-  "bg-emerald-500/30 border-emerald-300/40",
-  "bg-orange-500/30 border-orange-300/40",
-  "bg-sky-500/30 border-sky-300/40",
-  "bg-rose-500/30 border-rose-300/40",
+// Badge di atas foto: latar hitam (kayak tombol edit/hapus), pinggiran garis tipis senada kategori
+const CATEGORY_BORDER_PALETTE = [
+  "border-cyan-400/70",
+  "border-pink-400/70",
+  "border-amber-400/70",
+  "border-violet-400/70",
+  "border-emerald-400/70",
+  "border-orange-400/70",
+  "border-sky-400/70",
+  "border-rose-400/70",
 ];
 
 function getCategoryColor(name, categories) {
@@ -57,10 +57,10 @@ function getCategoryColor(name, categories) {
   return CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length];
 }
 
-function getPhotoBadgeStyle(name, categories) {
+function getCategoryBorderColor(name, categories) {
   const idx = categories.indexOf(name);
-  if (idx === -1) return "bg-zinc-500/30 border-zinc-300/30";
-  return PHOTO_BADGE_PALETTE[idx % PHOTO_BADGE_PALETTE.length];
+  if (idx === -1) return "border-zinc-500/60";
+  return CATEGORY_BORDER_PALETTE[idx % CATEGORY_BORDER_PALETTE.length];
 }
 
 function reconcileOrder(order, categories) {
@@ -94,7 +94,7 @@ function formatUpdatedAt(ts) {
   const day = DAY_NAMES_ID[d.getDay()];
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
-  return `[ ${day} ${hh}.${mm} tanggal ${d.getDate()} ]`;
+  return `${day} ${hh}.${mm} - tanggal ${d.getDate()}`;
 }
 
 function compressImage(file, maxSize = 800, quality = 0.8) {
@@ -469,7 +469,7 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
         {/* Baris atas: badge kategori kiri, edit/hapus kanan */}
         <div className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
           <span
-            className={`text-[9px] uppercase tracking-wide font-bold px-2 py-1 rounded-full border backdrop-blur-md shadow-sm text-white ${getPhotoBadgeStyle(account.category, categories)}`}
+            className={`text-[9px] uppercase tracking-wide font-bold px-2 py-1 rounded-full bg-black/50 backdrop-blur-sm border shadow-sm text-white ${getCategoryBorderColor(account.category, categories)}`}
           >
             {account.category}
           </span>
@@ -510,15 +510,12 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
         )}
 
         <div
-          className={`mt-2.5 flex items-center gap-1.5 text-[10.5px] ${
-            account.description ? "" : "pt-2.5 border-t border-zinc-800"
+          className={`flex items-center gap-1.5 text-[10.5px] text-zinc-300 ${
+            account.description ? "mt-1" : "mt-2.5 pt-2.5 border-t border-zinc-800"
           }`}
         >
           <Clock className="h-3 w-3 shrink-0 text-cyan-400" />
-          <span className="text-zinc-300">
-            <span className="font-semibold text-zinc-100">Diperbarui:</span>{" "}
-            {formatUpdatedAt(account.updatedAt || account.createdAt)}
-          </span>
+          <span>{formatUpdatedAt(account.updatedAt || account.createdAt)}</span>
         </div>
       </div>
     </motion.div>
@@ -536,6 +533,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
   const [error, setError] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategory, setNewCategory] = useState("");
+  const [updateTimestamp, setUpdateTimestamp] = useState(true);
   const fileRef = useRef(null);
   const newCategoryRef = useRef(null);
 
@@ -581,6 +579,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
       return;
     }
     const now = Date.now();
+    const updatedAt = initial && !updateTimestamp ? initial.updatedAt || initial.createdAt : now;
     onSave({
       id: initial?.id || uid(),
       username: username.trim().replace(/^@/, ""),
@@ -590,7 +589,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
       category,
       photo,
       createdAt: initial?.createdAt || now,
-      updatedAt: now,
+      updatedAt,
     });
   };
 
@@ -758,13 +757,41 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
           </motion.p>
         )}
 
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={handleSubmit}
-          className="mt-5 w-full rounded-xl bg-zinc-50 text-zinc-900 font-bold py-3 hover:bg-white transition-colors"
-        >
-          Simpan Akun
-        </motion.button>
+        <div className="mt-5 flex gap-2">
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={handleSubmit}
+            style={{ flex: initial ? "3 3 0%" : "1 1 100%" }}
+            className="rounded-xl bg-zinc-50 text-zinc-900 font-bold py-3 hover:bg-white transition-colors"
+          >
+            Simpan Akun
+          </motion.button>
+
+          {initial && (
+            <button
+              type="button"
+              onClick={() => setUpdateTimestamp((v) => !v)}
+              style={{ flex: "1 1 0%" }}
+              className={`rounded-xl border flex flex-col items-center justify-center gap-1 py-2 transition-colors ${
+                updateTimestamp ? "bg-cyan-500/10 border-cyan-400/50" : "bg-zinc-800 border-zinc-700"
+              }`}
+              aria-label="Update waktu diperbarui"
+            >
+              <span className="text-[8px] uppercase tracking-wide text-zinc-400">Waktu</span>
+              <div
+                className={`h-5 w-9 rounded-full flex items-center px-0.5 transition-colors ${
+                  updateTimestamp ? "bg-cyan-400 justify-end" : "bg-zinc-600 justify-start"
+                }`}
+              >
+                <motion.span
+                  layout
+                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                  className="h-4 w-4 rounded-full bg-white block shadow"
+                />
+              </div>
+            </button>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );
