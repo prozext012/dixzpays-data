@@ -370,7 +370,7 @@ function BackupSheet({ onClose, onExportJson, onExportPdf, onImportClick, jsonSi
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-zinc-100">Masukan Data</p>
-              <p className="text-xs text-zinc-500">Pulihkan dari file .json yang pernah kamu download</p>
+              <p className="text-xs text-zinc-500">Akun baru ditambahin, yang udah ada dilewat otomatis</p>
             </div>
           </motion.button>
 
@@ -1161,22 +1161,12 @@ export default function App() {
   };
 
   const handleImportClick = () => {
-    if (accounts.length > 0) {
-      showToast("Gagal, data akun sudah ada");
-      return;
-    }
     importInputRef.current?.click();
   };
 
   const handleImportFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (accounts.length > 0) {
-      showToast("Gagal, data akun sudah ada");
-      e.target.value = "";
-      return;
-    }
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -1191,11 +1181,26 @@ export default function App() {
           ? reconcileOrder(parsed.filterOrder, importedCategories)
           : reconcileOrder(["Semua", ...importedCategories], importedCategories);
 
-        persist(importedAccounts);
-        persistCategories(importedCategories);
-        handleReorderFilters(importedOrder);
-        setActiveCategory(importedOrder[0] || "Semua");
-        showToast("Data berhasil dimuat");
+        // Cocokin duplikat berdasarkan username (case-insensitive) - yang udah ada di-skip
+        const existingUsernames = new Set(accounts.map((a) => (a.username || "").toLowerCase()));
+        const newOnes = importedAccounts.filter(
+          (a) => a.username && !existingUsernames.has(a.username.toLowerCase())
+        );
+
+        if (newOnes.length === 0) {
+          showToast("Data sudah ada semua");
+          e.target.value = "";
+          return;
+        }
+
+        const mergedAccounts = [...newOnes, ...accounts];
+        const mergedCategories = Array.from(new Set([...categories, ...importedCategories]));
+        const mergedOrder = reconcileOrder([...filterOrder, ...importedOrder], mergedCategories);
+
+        persist(mergedAccounts);
+        persistCategories(mergedCategories);
+        handleReorderFilters(mergedOrder);
+        showToast(`${newOnes.length} akun baru ditambahkan`);
         setBackupOpen(false);
       } catch {
         showToast("File tidak valid");
