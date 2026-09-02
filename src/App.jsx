@@ -95,15 +95,18 @@ function formatUpdatedAt(ts) {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
 
-  const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+  const diffMs = Date.now() - ts;
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
 
   let relative;
-  if (diffDays <= 0) relative = "hari ini";
-  else if (diffDays === 1) relative = "kemarin";
+  if (diffMinutes < 1) relative = "baru saja";
+  else if (diffHours < 1) relative = `${diffMinutes} menit lalu`;
+  else if (diffHours < 24) relative = `${diffHours} jam lalu`;
   else relative = `${diffDays} hari lalu`;
 
-  return `${day} ${hh}.${mm} - ${relative}`;
+  return `${day} ${hh}:${mm} - ${relative}`;
 }
 
 function compressImage(file, maxSize = 640, quality = 0.72) {
@@ -483,14 +486,34 @@ function AccountCard({ account, categories, onEdit, onDelete, onCopy }) {
       </div>
 
       <div className="p-3">
-        <p className="text-sm font-semibold text-zinc-50 truncate">@{account.username}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold text-zinc-50 truncate flex-1">@{account.username}</p>
+          <motion.button
+            whileTap={{ scale: 0.8 }}
+            onClick={() => onCopy(account.username)}
+            className="text-zinc-500 hover:text-cyan-300 transition-colors shrink-0"
+            aria-label="Salin username"
+          >
+            <Copy className="h-3 w-3" />
+          </motion.button>
+        </div>
 
         <div className="mt-2.5 space-y-1.5">
           <CopyField icon={AtSign} value={account.contact} mask onCopy={onCopy} placeholder="Belum ada email/nomor" />
           <CopyField icon={Lock} value={account.password} mask onCopy={onCopy} placeholder="Belum ada password" />
         </div>
 
-        <div className="mt-2.5 pt-2.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10.5px] text-zinc-300">
+        {account.description && (
+          <p className="mt-2.5 pt-2.5 border-t border-zinc-800 text-[11px] text-zinc-400 leading-relaxed line-clamp-3">
+            {account.description}
+          </p>
+        )}
+
+        <div
+          className={`flex items-center gap-1.5 text-[10.5px] text-zinc-300 ${
+            account.description ? "mt-1" : "mt-2.5 pt-2.5 border-t border-zinc-800"
+          }`}
+        >
           <Clock className="h-3 w-3 shrink-0 text-cyan-400" />
           <span>{formatUpdatedAt(account.updatedAt || account.createdAt)}</span>
         </div>
@@ -503,6 +526,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
   const [username, setUsername] = useState(initial?.username || "");
   const [contact, setContact] = useState(initial?.contact || "");
   const [password, setPassword] = useState(initial?.password || "");
+  const [description, setDescription] = useState(initial?.description || "");
   const [category, setCategory] = useState(initial?.category || categories[0]);
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [busy, setBusy] = useState(false);
@@ -561,6 +585,7 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
       username: username.trim().replace(/^@/, ""),
       contact: contact.trim(),
       password,
+      description: description.trim(),
       category,
       photo,
       createdAt: initial?.createdAt || now,
@@ -646,7 +671,18 @@ function AccountModal({ initial, categories, onClose, onSave, onAddCategory, onD
             />
           </div>
 
-          <div className="mt-2 pt-5 border-t border-zinc-800">
+          <div className="pt-5 mt-2 border-t border-zinc-800">
+            <label className="text-xs text-zinc-500 mb-1 block">Deskripsi (opsional)</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Catatan tambahan soal akun ini..."
+              rows={3}
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-cyan-400/60 resize-none transition-colors"
+            />
+          </div>
+
+          <div className="pt-1">
             <label className="text-xs text-zinc-500 mb-1 block">Kategori</label>
             <div className="flex flex-wrap gap-2">
               <AnimatePresence initial={false}>
@@ -844,7 +880,13 @@ function FilterChips({ order, categories, activeCategory, onSelect, onReorder })
     };
 
     const handleUp = () => {
-      onReorder(orderRef.current);
+      const finalOrder = orderRef.current;
+      try {
+        localStorage.setItem(FILTER_ORDER_KEY, JSON.stringify(finalOrder));
+      } catch {
+        // abaikan
+      }
+      onReorder(finalOrder);
       setDraggingId(null);
     };
 
@@ -1017,14 +1059,14 @@ export default function App() {
     }
   }, []);
 
-  const handleReorderFilters = (newOrder) => {
+  const handleReorderFilters = useCallback((newOrder) => {
     setFilterOrder(newOrder);
     try {
       localStorage.setItem(FILTER_ORDER_KEY, JSON.stringify(newOrder));
     } catch {
       // abaikan
     }
-  };
+  }, []);
 
   const handleAddCategory = (name) => {
     const exists = categories.some((c) => c.toLowerCase() === name.toLowerCase());
