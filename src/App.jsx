@@ -65,7 +65,12 @@ function getCategoryBorderColor(name, categories) {
 
 function reconcileOrder(order, categories) {
   const validSet = new Set(["Semua", ...categories]);
-  let next = (order || []).filter((c) => validSet.has(c));
+  const seen = new Set();
+  let next = (order || []).filter((c) => {
+    if (!validSet.has(c) || seen.has(c)) return false;
+    seen.add(c);
+    return true;
+  });
   if (!next.includes("Semua")) next.unshift("Semua");
   categories.forEach((c) => {
     if (!next.includes(c)) next.push(c);
@@ -1194,7 +1199,9 @@ export default function App() {
         }
 
         const mergedAccounts = [...newOnes, ...accounts];
-        const mergedCategories = Array.from(new Set([...categories, ...importedCategories]));
+        const existingCategoryKeys = new Set(categories.map((c) => c.toLowerCase()));
+        const newCategoryNames = importedCategories.filter((c) => !existingCategoryKeys.has(c.toLowerCase()));
+        const mergedCategories = [...categories, ...newCategoryNames];
         const mergedOrder = reconcileOrder([...filterOrder, ...importedOrder], mergedCategories);
 
         persist(mergedAccounts);
